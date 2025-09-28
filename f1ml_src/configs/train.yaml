@@ -1,0 +1,18 @@
+data:
+  results_csv: "data/raw/results.csv"
+  races_csv:   "data/raw/races.csv"
+
+schema:
+  year_col: "year"
+  target_col: "positionOrder"
+
+model:
+  kind: "rf"
+  params:
+    n_estimators: 400
+    random_state: 42
+
+eval:
+  topk: 3
+
+output_dir: "artifacts"

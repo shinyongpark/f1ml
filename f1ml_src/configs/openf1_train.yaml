@@ -1,0 +1,20 @@
+data:
+  processed_parquet: "data/processed/openf1.parquet"
+  # (CSV fallbacks are ignored when processed_parquet is set)
+  results_csv: "data/raw/results.csv"
+  races_csv:   "data/raw/races.csv"
+
+schema:
+  year_col: "year"
+  target_col: "position"   # final race position from session_result
+
+model:
+  kind: "rf"
+  params:
+    n_estimators: 500
+    random_state: 42
+
+eval:
+  topk: 3
+
+output_dir: "artifacts"
