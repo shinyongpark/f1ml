@@ -1,8 +1,11 @@
 import argparse
 from pathlib import Path
 import pandas as pd
+import numpy as np
 from joblib import dump
 import yaml
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import mean_absolute_error
 
 from f1ml.preprocessing import (
     load_raw,
@@ -14,13 +17,9 @@ from f1ml.modeling import make_xy, build_model
 from f1ml.evaluate import metrics
 
 
-
 def _clean_xy(X, y):
-    import numpy as np
-    import pandas as pd
-
     # drop rows with NaN target
-    mask = y.notna() & ~pd.isna(y)
+    mask = y.notna()
     X = X.loc[mask].copy()
     y = y.loc[mask].copy()
 
@@ -49,6 +48,32 @@ def _clean_xy(X, y):
         X[num_cols] = X[num_cols].fillna(meds)
     y = y.loc[X.index]
     return X, y
+
+
+def _cross_validate(df: pd.DataFrame, model_cfg: dict, target_col: str = "pos_num", n_splits: int = 5) -> float:
+    """GroupKFold cross-validation grouped by race meeting."""
+    if "meeting_key" not in df.columns:
+        print("Skipping cross-validation: 'meeting_key' column not found.")
+        return float("nan")
+
+    groups = df["meeting_key"].values
+    X_all, y_all = make_xy(df, target_col=target_col)
+
+    gkf = GroupKFold(n_splits=n_splits)
+    fold_mae = []
+    for tr_idx, te_idx in gkf.split(X_all, y_all, groups):
+        Xtr, ytr = _clean_xy(X_all.iloc[tr_idx], y_all.iloc[tr_idx])
+        Xte, yte = _clean_xy(X_all.iloc[te_idx], y_all.iloc[te_idx])
+        m = build_model(model_cfg.get("kind", "rf"), **model_cfg.get("params", {}))
+        m.fit(Xtr, ytr)
+        yhat = m.predict(Xte)
+        fold_mae.append(mean_absolute_error(yte, yhat))
+
+    cv_mae = sum(fold_mae) / len(fold_mae)
+    print(f"GroupKFold MAE (by race, {n_splits} folds):", cv_mae)
+    return cv_mae
+
+
 def main(cfg_path: str):
     with open(cfg_path, "r") as f:
         cfg = yaml.safe_load(f)
@@ -93,7 +118,6 @@ def main(cfg_path: str):
 
     # --- Prefilter: require target + at least one useful numeric feature ---
     target_col = 'pos_num'
-    # If we have grid/best_qual_sec, require at least one of them; otherwise, ensure at least one numeric feature exists
     preferred = [c for c in ['grid','best_qual_sec'] if c in df.columns]
     if preferred:
         df = df[df[preferred].notna().any(axis=1)].copy()
@@ -106,19 +130,22 @@ def main(cfg_path: str):
         print(f"Rows after target+feature filters: {len(df)}")
     print("Numeric columns (sample):", df.select_dtypes(include='number').columns.tolist()[:12])
     print("Has features:", [c for c in ['grid','best_qual_sec','qual_rank_norm'] if c in df.columns])
-    
+
+    # --- Optional cross-validation (before final model training) ---
+    if eval_cfg.get("cross_validate", False):
+        _cross_validate(df, model_cfg, target_col=target_col, n_splits=eval_cfg.get("cv_splits", 5))
+
     # --- Split ---
-    year_col   = schema_cfg.get('year_col', 'year')
-    target_col = 'pos_num'
+    year_col = schema_cfg.get('year_col', 'year')
     train, test = split_by_year(df, year_col=year_col)
 
     if train.empty or test.empty:
         # Fallback: simple 80/20 split
+        print("Warning: year-based split produced empty set. Falling back to 80/20 split.")
         n = len(df)
         split_idx = max(1, int(n * 0.8))
         train, test = df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
 
-    # If still empty after fallback, bail early with a clear message
     if train.empty or test.empty:
         raise SystemExit('Not enough samples after filtering to perform a train/test split.')
 
@@ -126,15 +153,13 @@ def main(cfg_path: str):
     Xtr, ytr = make_xy(train, target_col=target_col)
     Xtr, ytr = _clean_xy(Xtr, ytr)
 
-    Xte, yte = make_xy(test,  target_col=target_col)
+    Xte, yte = make_xy(test, target_col=target_col)
     Xte, yte = _clean_xy(Xte, yte)
 
     # Baseline: predict finishing position = starting grid (or 20 if NaN)
     if "grid" in test.columns:
         baseline = test["grid"].fillna(20).clip(1, 20).astype(int)
-        from sklearn.metrics import mean_absolute_error
         print("Baseline(grid) MAE:", mean_absolute_error(yte, baseline))
-
 
     model = build_model(model_cfg.get("kind", "rf"), **model_cfg.get("params", {}))
     model.fit(Xtr, ytr)
@@ -149,29 +174,6 @@ def main(cfg_path: str):
     dump(model, out_dir / "model.joblib")
     pd.DataFrame({"metric": list(m.keys()), "value": list(m.values())}).to_csv(out_dir / "metrics.csv", index=False)
     print("Metrics:", m)
-
-    # in scripts/train.py, after features and filtering
-    from sklearn.model_selection import GroupKFold
-    from sklearn.metrics import mean_absolute_error
-    groups = df["meeting_key"]
-    gkf = GroupKFold(n_splits=5)
-
-    # choose feature set once
-    X_all, y_all = make_xy(df, target_col="pos_num")
-
-    fold_mae = []
-    for tr_idx, te_idx in gkf.split(X_all, y_all, groups):
-        Xtr, ytr = X_all.iloc[tr_idx], y_all.iloc[tr_idx]
-        Xte, yte = X_all.iloc[te_idx], y_all.iloc[te_idx]
-        # quick clean (reuse helper)
-        Xtr, ytr = _clean_xy(Xtr, ytr)
-        Xte, yte = _clean_xy(Xte, yte)
-        model = build_model("rf", n_estimators=600, max_depth=None, random_state=42)
-        model.fit(Xtr, ytr)
-        yhat = model.predict(Xte)
-        fold_mae.append(mean_absolute_error(yte, yhat))
-    print("GroupKFold MAE (by race):", sum(fold_mae)/len(fold_mae))
-
 
 
 if __name__ == "__main__":

@@ -44,28 +44,6 @@ def make_weekend_features(df: pd.DataFrame) -> pd.DataFrame:
         ohe = pd.get_dummies(df["team_name"], prefix="team", dummy_na=False)
         df = pd.concat([df, ohe], axis=1)
 
-    # Team strength (lower mean pos is better → invert)
-    if {"team_name","pos_num","year"}.issubset(df.columns):
-        df["team_mean_pos_year"] = (
-            df.groupby(["year","team_name"])["pos_num"].transform("mean")
-        )
-        df["team_strength"] = -df["team_mean_pos_year"]
-
-    # Driver form (last 3 / 5 finishes)
-    if {"driver_number","pos_num","year","meeting_key"}.issubset(df.columns):
-        df = df.sort_values(["driver_number","year","meeting_key"])
-        df["driver_form3"] = (
-            df.groupby("driver_number")["pos_num"]
-            .apply(lambda s: s.shift().rolling(3, min_periods=1).mean())
-            .reset_index(level=0, drop=True)
-        )
-        df["driver_form5"] = (
-            df.groupby("driver_number")["pos_num"]
-            .apply(lambda s: s.shift().rolling(5, min_periods=1).mean())
-            .reset_index(level=0, drop=True)
-        )
-
-
     # final simple null handling
     num_cols = df.select_dtypes(include="number").columns
     df[num_cols] = df[num_cols].fillna(df[num_cols].median())

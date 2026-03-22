@@ -2,7 +2,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
-def make_xy(df: pd.DataFrame, target_col: str = "positionOrder"):
+def make_xy(df: pd.DataFrame, target_col: str = "pos_num"):
     if target_col not in df.columns:
         raise KeyError(f"Target column '{target_col}' not found")
     # Feature selection: if we already have engineered cols, prefer them
