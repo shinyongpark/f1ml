@@ -6,3 +6,6 @@ pyyaml
 tqdm
 requests
 joblib
+xgboost
+lightgbm
+scipy

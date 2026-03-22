@@ -1,6 +1,5 @@
 data:
   processed_parquet: "data/processed/openf1.parquet"
-  # (CSV fallbacks are ignored when processed_parquet is set)
   results_csv: "data/raw/results.csv"
   races_csv:   "data/raw/races.csv"
 
@@ -9,12 +8,18 @@ schema:
   target_col: "position"   # final race position from session_result
 
 model:
-  kind: "rf"
+  kind: "xgb"
   params:
     n_estimators: 500
+    learning_rate: 0.05
+    max_depth: 5
+    subsample: 0.8
+    colsample_bytree: 0.8
     random_state: 42
 
 eval:
   topk: 3
+  cross_validate: false   # set true to run GroupKFold CV before final training
+  cv_splits: 5
 
 output_dir: "artifacts"
