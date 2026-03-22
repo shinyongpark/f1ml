@@ -4,3 +4,8 @@ scikit-learn
 matplotlib
 pyyaml
 tqdm
+requests
+joblib
+xgboost
+lightgbm
+scipy

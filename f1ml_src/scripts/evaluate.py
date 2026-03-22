@@ -4,7 +4,7 @@ import pandas as pd
 from f1ml.modeling import make_xy
 from f1ml.evaluate import metrics
 
-def main(model_path: str, test_parquet: str, target_col: str = "positionOrder"):
+def main(model_path: str, test_parquet: str, target_col: str = "pos_num"):
     model = load(model_path)
     df = pd.read_parquet(test_parquet)
     X, y = make_xy(df, target_col=target_col)
