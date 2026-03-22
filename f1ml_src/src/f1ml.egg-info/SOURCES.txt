@@ -10,3 +10,7 @@ src/f1ml.egg-info/dependency_links.txt
 src/f1ml.egg-info/top_level.txt
 src/f1ml/data/openf1.py
 src/f1ml/utils/io.py
+tests/test_evaluate.py
+tests/test_features.py
+tests/test_modeling.py
+tests/test_preprocessing.py
